@@ -22,4 +22,7 @@ urlpatterns = [
     path('artefacto/eliminar/<int:artefacto_id>/', views.eliminar_artefacto, name='eliminar_artefacto'),# eliminar artefacto
     path('artefacto/<int:artefacto_id>/descargar/', views.descargar_diagrama, name='descargar_diagrama'), #descaegar diagramas 
 
+    path('password_reset/', views.password_reset_request, name='password_reset_request'),
+    path('password_reset/verify/', views.password_reset_verify, name='password_reset_verify'),
+    path('password_reset/confirm/', views.password_reset_confirm, name='password_reset_confirm'),
 ]

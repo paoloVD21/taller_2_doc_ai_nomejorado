@@ -1,6 +1,35 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from typing import Any, List, Tuple
+
+class SecurityQuestions(models.Model):
+    PREGUNTAS_CHOICES = [
+        ('color', '¿Cuál es tu color favorito?'),
+        ('comida', '¿Cuál es tu comida favorita?'),
+        ('pelicula', '¿Cuál es tu película favorita?'),
+        ('libro', '¿Cuál es tu libro favorito?'),
+        ('deporte', '¿Cuál es tu deporte favorito?'),
+        ('musica', '¿Cuál es tu género de música favorito?')
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    pregunta1 = models.CharField(max_length=50, choices=PREGUNTAS_CHOICES)
+    respuesta1 = models.CharField(max_length=100)
+    pregunta2 = models.CharField(max_length=50, choices=PREGUNTAS_CHOICES)
+    respuesta2 = models.CharField(max_length=100)
+    pregunta3 = models.CharField(max_length=50, choices=PREGUNTAS_CHOICES)
+    respuesta3 = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name = "Pregunta de Seguridad"
+        verbose_name_plural = "Preguntas de Seguridad"
+
+    def clean(self):
+        # Verificar que no se repitan las preguntas
+        preguntas = [self.pregunta1, self.pregunta2, self.pregunta3]
+        if len(set(preguntas)) != 3:
+            raise ValidationError('Las tres preguntas deben ser diferentes')
 
 class Project(models.Model):
     nombre: models.CharField = models.CharField(max_length=100)

@@ -3,7 +3,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Project, Artefacto
+from .models import Project, Artefacto, SecurityQuestions
 
 
 
@@ -242,6 +242,116 @@ class CustomUserCreationForm(UserCreationForm):
         if User.objects.filter(username__iexact=username).exists():
             raise ValidationError('Este nombre de usuario ya existe.')
         return username
+
+    def clean_password1(self):
+        password = self.cleaned_data.get('password1')
+        if not password:
+            raise ValidationError('Este campo es requerido.')
+            
+        if len(password) < 8:
+            raise ValidationError('La contraseña debe tener al menos 8 caracteres.')
+            
+        if not re.search(r'[A-Z]', password):
+            raise ValidationError('La contraseña debe contener al menos una letra mayúscula.')
+            
+        if not re.search(r'[a-z]', password):
+            raise ValidationError('La contraseña debe contener al menos una letra minúscula.')
+            
+        if not re.search(r'\d', password):
+            raise ValidationError('La contraseña debe contener al menos un número.')
+            
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            raise ValidationError('La contraseña debe contener al menos un símbolo especial.')
+            
+        return password
+
+    def clean_password2(self):
+        password1 = self.cleaned_data.get('password1')
+        password2 = self.cleaned_data.get('password2')
+        
+        if not password1 or not password2:
+            raise ValidationError('Ambas contraseñas son requeridas.')
+            
+        if password1 != password2:
+            raise ValidationError('Las contraseñas no coinciden.')
+            
+        return password2
+
+class SecurityQuestionsForm(forms.ModelForm):
+    """Formulario para configurar preguntas de seguridad"""
+    class Meta:
+        model = SecurityQuestions
+        fields = ['pregunta1', 'respuesta1', 'pregunta2', 'respuesta2', 'pregunta3', 'respuesta3']
+        widgets = {
+            'pregunta1': forms.Select(attrs={'class': 'form-select'}),
+            'respuesta1': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Tu respuesta'}),
+            'pregunta2': forms.Select(attrs={'class': 'form-select'}),
+            'respuesta2': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Tu respuesta'}),
+            'pregunta3': forms.Select(attrs={'class': 'form-select'}),
+            'respuesta3': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Tu respuesta'}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        preguntas = [cleaned_data.get('pregunta1'), 
+                    cleaned_data.get('pregunta2'),
+                    cleaned_data.get('pregunta3')]
+        
+        if len(set(preguntas)) != 3:
+            raise forms.ValidationError('Debes seleccionar tres preguntas diferentes')
+        
+        return cleaned_data
+
+class PasswordResetRequestForm(forms.Form):
+    """Formulario para solicitar restablecimiento de contraseña"""
+    username = forms.CharField(
+        label='Nombre de usuario',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ingrese su nombre de usuario'
+        })
+    )
+
+class SecurityAnswersForm(forms.Form):
+    """Formulario para validar respuestas de seguridad"""
+    respuesta1 = forms.CharField(
+        label='Respuesta 1',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ingrese su respuesta'
+        })
+    )
+    respuesta2 = forms.CharField(
+        label='Respuesta 2',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ingrese su respuesta'
+        })
+    )
+    respuesta3 = forms.CharField(
+        label='Respuesta 3',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ingrese su respuesta'
+        })
+    )
+
+class NewPasswordForm(forms.Form):
+    """Formulario para nueva contraseña"""
+    password1 = forms.CharField(
+        label='Nueva contraseña',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ingrese su nueva contraseña'
+        })
+    )
+    password2 = forms.CharField(
+        label='Confirmar contraseña',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Confirme su nueva contraseña'
+        })
+    )
 
     def clean_password1(self):
         password = self.cleaned_data.get('password1')

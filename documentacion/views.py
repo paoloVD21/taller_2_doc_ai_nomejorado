@@ -1,14 +1,16 @@
 from django.shortcuts import render, redirect, get_object_or_404 # pyright: ignore[reportMissingModuleSource]
 from django.contrib.auth.decorators import login_required # pyright: ignore[reportMissingModuleSource]
-from django.contrib.auth import authenticate,login, logout # pyright: ignore[reportMissingModuleSource]
+from django.contrib.auth import authenticate, login, logout # pyright: ignore[reportMissingModuleSource]
 from django.views.decorators.http import require_POST # pyright: ignore[reportMissingModuleSource]
 from django.http import JsonResponse, HttpResponse # pyright: ignore[reportMissingModuleSource]
 from django.contrib.auth.forms import AuthenticationForm # pyright: ignore[reportMissingModuleSource]
 from django.contrib import messages # pyright: ignore[reportMissingModuleSource]
 from django.contrib.auth.models import User # pyright: ignore[reportMissingModuleSource]
 from django.views.decorators.csrf import csrf_exempt # pyright: ignore[reportMissingModuleSource]
-from .models import Project, Artefacto, Fase, SubArtefacto
-from .forms import ProjectForm, ArtefactoForm, CustomUserCreationForm
+from django.core.exceptions import ValidationError # pyright: ignore[reportMissingModuleSource]
+from .models import Project, Artefacto, Fase, SubArtefacto, SecurityQuestions
+from .forms import (ProjectForm, ArtefactoForm, CustomUserCreationForm, SecurityQuestionsForm,
+                   PasswordResetRequestForm, SecurityAnswersForm, NewPasswordForm)
 from core.ia import generar_subartefacto_con_prompt, extraer_requisitos, _generar_contenido, PROMPTS
 import datetime
 
@@ -105,19 +107,25 @@ def eliminar_proyecto(request, proyecto_id):
 def signup(request):
     if request.method == 'POST':
         print("Datos POST recibidos:", request.POST)  # Debug
-        form = CustomUserCreationForm(request.POST)
-        print("¿El formulario es válido?:", form.is_valid())  # Debug
-        if form.is_valid():
+        user_form = CustomUserCreationForm(request.POST)
+        security_form = SecurityQuestionsForm(request.POST)
+        print("¿El formulario es válido?:", user_form.is_valid() and security_form.is_valid())  # Debug
+        if user_form.is_valid() and security_form.is_valid():
             try:
-                print("Creando usuario con datos:", form.cleaned_data)  # Debug
-                user = form.save()
+                print("Creando usuario con datos:", user_form.cleaned_data)  # Debug
+                user = user_form.save()
                 print("Usuario creado:", user)  # Debug
+                
+                # Guardar preguntas de seguridad
+                security_questions = security_form.save(commit=False)
+                security_questions.user = user
+                security_questions.save()
                 
                 # Autenticar con username y password1 para obtener el backend
                 user = authenticate(
                     request,
-                    username=form.cleaned_data['username'],
-                    password=form.cleaned_data['password1']
+                    username=user_form.cleaned_data['username'],
+                    password=user_form.cleaned_data['password1']
                 )
                 if user is not None:
                     login(request, user)
@@ -130,14 +138,20 @@ def signup(request):
                 print("Error al crear usuario:", str(e))  # Debug
                 messages.error(request, f"Error al crear el usuario: {str(e)}")
         else:
-            print("Errores del formulario:", form.errors)  # Debug
-            for field in form.errors:
-                for error in form.errors[field]:
-                    messages.error(request, f"{field}: {error}")
+            print("Errores del formulario user:", user_form.errors)  # Debug
+            print("Errores del formulario security:", security_form.errors)  # Debug
+            for form in [user_form, security_form]:
+                for field in form.errors:
+                    for error in form.errors[field]:
+                        messages.error(request, f"{field}: {error}")
     else:
-        form = CustomUserCreationForm()
+        user_form = CustomUserCreationForm()
+        security_form = SecurityQuestionsForm()
 
-    return render(request, 'registration/signup.html', {'form': form})
+    return render(request, 'registration/signup.html', {
+        'form': user_form,
+        'security_form': security_form
+    })
 
 def cerrar_sesion(request):
     logout(request)
@@ -474,3 +488,80 @@ def login_view(request):
     else:
         form = AuthenticationForm()
     return render(request, 'registration/login.html', {'form': form})
+
+def password_reset_request(request):
+    """Vista para solicitar el restablecimiento de contraseña"""
+    if request.method == 'POST':
+        form = PasswordResetRequestForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data['username']
+            try:
+                user = User.objects.get(username=username)
+                security_questions = SecurityQuestions.objects.get(user=user)
+                request.session['reset_user_id'] = str(user.pk)
+                request.session['questions'] = {
+                    'pregunta1': dict(SecurityQuestions.PREGUNTAS_CHOICES).get(security_questions.pregunta1),
+                    'pregunta2': dict(SecurityQuestions.PREGUNTAS_CHOICES).get(security_questions.pregunta2),
+                    'pregunta3': dict(SecurityQuestions.PREGUNTAS_CHOICES).get(security_questions.pregunta3)
+                }
+                return redirect('password_reset_verify')
+            except (User.DoesNotExist, SecurityQuestions.DoesNotExist):
+                messages.error(request, "Usuario no encontrado o no tiene preguntas de seguridad configuradas.")
+    else:
+        form = PasswordResetRequestForm()
+    return render(request, 'registration/password_reset_request.html', {'form': form})
+
+def password_reset_verify(request):
+    """Vista para verificar respuestas de seguridad"""
+    if 'reset_user_id' not in request.session:
+        return redirect('password_reset_request')
+
+    try:
+        user = User.objects.get(pk=request.session['reset_user_id'])
+        security_questions = SecurityQuestions.objects.get(user=user)
+        questions = request.session.get('questions', {})
+
+        if request.method == 'POST':
+            form = SecurityAnswersForm(request.POST)
+            if form.is_valid():
+                if (form.cleaned_data['respuesta1'].lower() == security_questions.respuesta1.lower() and
+                    form.cleaned_data['respuesta2'].lower() == security_questions.respuesta2.lower() and
+                    form.cleaned_data['respuesta3'].lower() == security_questions.respuesta3.lower()):
+                    return redirect('password_reset_confirm')
+                else:
+                    messages.error(request, "Las respuestas no coinciden con las registradas.")
+        else:
+            form = SecurityAnswersForm()
+
+        return render(request, 'registration/password_reset_verify.html', {
+            'form': form,
+            'questions': questions
+        })
+    except (User.DoesNotExist, SecurityQuestions.DoesNotExist, ValueError):
+        messages.error(request, "Error al verificar el usuario.")
+        return redirect('password_reset_request')
+
+def password_reset_confirm(request):
+    """Vista para establecer nueva contraseña"""
+    if 'reset_user_id' not in request.session:
+        return redirect('password_reset_request')
+
+    try:
+        user = User.objects.get(pk=request.session['reset_user_id'])
+
+        if request.method == 'POST':
+            form = NewPasswordForm(request.POST)
+            if form.is_valid():
+                user.set_password(form.cleaned_data['password1'])
+                user.save()
+                # Limpiar la sesión
+                request.session.flush()
+                messages.success(request, "Tu contraseña ha sido actualizada correctamente.")
+                return redirect('login')
+        else:
+            form = NewPasswordForm()
+
+        return render(request, 'registration/password_reset_confirm.html', {'form': form})
+    except (User.DoesNotExist, ValueError):
+        messages.error(request, "Error al verificar el usuario.")
+        return redirect('password_reset_request')
