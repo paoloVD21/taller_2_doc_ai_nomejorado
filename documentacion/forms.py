@@ -1,9 +1,11 @@
 import re
 from django import forms
-from .models import Project, Artefacto
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
+from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
+from .models import Project, Artefacto
+
+
 
 ARTEFACTOS_MERMAID = [
     "Diagrama de flujo",
@@ -17,7 +19,7 @@ ARTEFACTOS_MERMAID = [
 ]
 
 # Función para detectar contenido repetitivo o no coherente
-def texto_no_coherente(texto):
+def texto_no_coherente(texto: str) -> bool:
     texto = texto.lower().strip()
     if len(set(texto)) <= 3:
         return True
@@ -35,7 +37,7 @@ def texto_no_coherente(texto):
         return True
     return False
 #============= restricciones para nombre y descripcion del proyecto ==========
-def texto_coherente(texto):
+def texto_coherente(texto: str) -> bool:
     """
     Valida si un texto es mínimamente coherente:
     - Al menos 3 palabras con más de 2 letras.
@@ -150,17 +152,12 @@ class ArtefactoForm(forms.ModelForm):
         titulo = self.cleaned_data['titulo'].strip()
         if not re.match(r'^[A-Za-z0-9ÁÉÍÓÚáéíóúñÑ\s.,()-]{3,100}$', titulo):
             raise ValidationError("El título contiene caracteres no válidos.")
-        if texto_no_coherente(titulo):
-            raise ValidationError("El título no es coherente o tiene patrones repetitivos.")
         return titulo
 
     def clean_contenido(self):
         contenido = self.cleaned_data['contenido'].strip()
         if len(contenido) < 10:
             raise ValidationError("El contenido es demasiado corto.")
-        titulo = self.cleaned_data.get('titulo', '')
-        if titulo not in ARTEFACTOS_MERMAID and texto_no_coherente(contenido):
-            raise ValidationError("El contenido no parece tener sentido o está mal estructurado.")
         return contenido
 
     def clean_tipo(self):
@@ -208,7 +205,7 @@ class ArtefactoForm(forms.ModelForm):
 # ===== registarse  y loguearse  ============
 class CustomUserCreationForm(UserCreationForm):
     """
-    Formulario personalizado de registro de usuario con campo de email obligatorio.
+    Formulario personalizado de registro de usuario simplificado.
     """
     username = forms.CharField(
         label='Nombre de usuario',
@@ -217,21 +214,13 @@ class CustomUserCreationForm(UserCreationForm):
             'placeholder': 'Ingrese un nombre de usuario'
         })
     )
-            
-    email = forms.EmailField(
-        required=True,
-        label="Correo electrónico",
-        widget=forms.EmailInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'correo@ejemplo.com'
-        })
-    )
 
     password1 = forms.CharField(
         label='Contraseña',
         widget=forms.PasswordInput(attrs={
             'class': 'form-control',
-            'placeholder': 'Ingrese su contraseña'
+            'placeholder': 'Ingrese su contraseña',
+            'autocomplete': 'new-password'
         })
     )
 
@@ -239,54 +228,51 @@ class CustomUserCreationForm(UserCreationForm):
         label='Confirmar contraseña',
         widget=forms.PasswordInput(attrs={
             'class': 'form-control',
-            'placeholder': 'Confirme su contraseña'
+            'placeholder': 'Confirme su contraseña',
+            'autocomplete': 'new-password'
         })
     )
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'password1', 'password2']
+        fields = ['username', 'password1', 'password2']
 
-    # ===== validadcion registro ============
     def clean_username(self):
-        username = self.cleaned_data['username']
-        if not re.match(r'^[a-zA-Z0-9_]{3,20}$', username):
-            raise ValidationError("Debe contener solo letras, números o guion bajo, entre 3 y 20 caracteres.")
-        if texto_no_coherente(username):
-            raise ValidationError("El usuario no es coherente o tiene patrones repetitivos.")
+        username = self.cleaned_data.get('username')
+        if User.objects.filter(username__iexact=username).exists():
+            raise ValidationError('Este nombre de usuario ya existe.')
         return username
-
-
-    def clean_email(self):
-        email = self.cleaned_data['email'].strip().lower()
-
-        # Verificar formato general válido
-        if not re.match(r'^[\w\.-]+@[a-zA-Z]+\.[a-z]{2,}(?:\.[a-z]{2,})?$', email):
-            raise ValidationError("Formato de correo inválido.")
-
-        dominio = email.split('@')[1]
-        nombre_dominio = dominio.split('.')[0]
-
-        if re.fullmatch(r'(.)\1{2,}', nombre_dominio):
-            raise ValidationError("El dominio no parece real. Usa uno válido como gmail.com o outlook.com.")
-
-        if len(nombre_dominio) < 4 or not any(letra in nombre_dominio for letra in 'aeiou'):
-            raise ValidationError("El dominio debe ser coherente y reconocible.")
-
-        return email
 
     def clean_password1(self):
         password = self.cleaned_data.get('password1')
-        pattern = r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$'
-        if not password or not re.match(pattern, password):
-            raise ValidationError("La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula, un número y un símbolo.")
+        if not password:
+            raise ValidationError('Este campo es requerido.')
+            
+        if len(password) < 8:
+            raise ValidationError('La contraseña debe tener al menos 8 caracteres.')
+            
+        if not re.search(r'[A-Z]', password):
+            raise ValidationError('La contraseña debe contener al menos una letra mayúscula.')
+            
+        if not re.search(r'[a-z]', password):
+            raise ValidationError('La contraseña debe contener al menos una letra minúscula.')
+            
+        if not re.search(r'\d', password):
+            raise ValidationError('La contraseña debe contener al menos un número.')
+            
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            raise ValidationError('La contraseña debe contener al menos un símbolo especial.')
+            
         return password
 
     def clean_password2(self):
         password1 = self.cleaned_data.get('password1')
         password2 = self.cleaned_data.get('password2')
+        
         if not password1 or not password2:
-            raise ValidationError("Ambas contraseñas son requeridas.")
+            raise ValidationError('Ambas contraseñas son requeridas.')
+            
         if password1 != password2:
-            raise ValidationError("Las contraseñas no coinciden.")
+            raise ValidationError('Las contraseñas no coinciden.')
+            
         return password2

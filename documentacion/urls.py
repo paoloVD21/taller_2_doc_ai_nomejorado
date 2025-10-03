@@ -6,6 +6,7 @@ from documentacion.views import login_view
 
 
 urlpatterns = [
+    path('check_username/', views.check_username, name='check_username'),
     path('login/', views.login_view, name='login'),#para el loguin
     path('', TemplateView.as_view(template_name='home.html'), name='home'),# pantilla de inicio 
     path('dashboard/', views.dashboard, name='dashboard'),# plantilla de dashboard

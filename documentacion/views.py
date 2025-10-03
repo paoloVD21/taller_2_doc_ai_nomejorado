@@ -1,10 +1,12 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth import authenticate,login, logout
-from django.views.decorators.http import require_POST
-from django.http import JsonResponse, HttpResponse
-from django.contrib.auth.forms import AuthenticationForm
-from django.contrib import messages
+from django.shortcuts import render, redirect, get_object_or_404 # pyright: ignore[reportMissingModuleSource]
+from django.contrib.auth.decorators import login_required # pyright: ignore[reportMissingModuleSource]
+from django.contrib.auth import authenticate,login, logout # pyright: ignore[reportMissingModuleSource]
+from django.views.decorators.http import require_POST # pyright: ignore[reportMissingModuleSource]
+from django.http import JsonResponse, HttpResponse # pyright: ignore[reportMissingModuleSource]
+from django.contrib.auth.forms import AuthenticationForm # pyright: ignore[reportMissingModuleSource]
+from django.contrib import messages # pyright: ignore[reportMissingModuleSource]
+from django.contrib.auth.models import User # pyright: ignore[reportMissingModuleSource]
+from django.views.decorators.csrf import csrf_exempt # pyright: ignore[reportMissingModuleSource]
 from .models import Project, Artefacto, Fase, SubArtefacto
 from .forms import ProjectForm, ArtefactoForm, CustomUserCreationForm
 from core.ia import generar_subartefacto_con_prompt, extraer_requisitos, _generar_contenido, PROMPTS
@@ -102,24 +104,36 @@ def eliminar_proyecto(request, proyecto_id):
 
 def signup(request):
     if request.method == 'POST':
+        print("Datos POST recibidos:", request.POST)  # Debug
         form = CustomUserCreationForm(request.POST)
+        print("¿El formulario es válido?:", form.is_valid())  # Debug
         if form.is_valid():
-            user = form.save(commit=False)
-            user.email = form.cleaned_data['email']
-            user.save()
-
-            # Autenticar con username y password1 para obtener el backend
-            user = authenticate(
-                request,
-                username=form.cleaned_data['username'],
-                password=form.cleaned_data['password1']
-            )
-            if user is not None:
-                login(request, user)
-                return redirect('home')
-            else:
-                messages.error(request, "No se pudo iniciar sesión automáticamente. Intenta iniciar sesión manualmente.")
-                return redirect('login')
+            try:
+                print("Creando usuario con datos:", form.cleaned_data)  # Debug
+                user = form.save()
+                print("Usuario creado:", user)  # Debug
+                
+                # Autenticar con username y password1 para obtener el backend
+                user = authenticate(
+                    request,
+                    username=form.cleaned_data['username'],
+                    password=form.cleaned_data['password1']
+                )
+                if user is not None:
+                    login(request, user)
+                    messages.success(request, "¡Registro exitoso!")
+                    return redirect('home')
+                else:
+                    messages.error(request, "No se pudo iniciar sesión automáticamente. Intenta iniciar sesión manualmente.")
+                    return redirect('login')
+            except Exception as e:
+                print("Error al crear usuario:", str(e))  # Debug
+                messages.error(request, f"Error al crear el usuario: {str(e)}")
+        else:
+            print("Errores del formulario:", form.errors)  # Debug
+            for field in form.errors:
+                for error in form.errors[field]:
+                    messages.error(request, f"{field}: {error}")
     else:
         form = CustomUserCreationForm()
 
@@ -142,7 +156,8 @@ def detalle_proyecto(request, proyecto_id):
         "Despliegue"
     ]
     
-    fases_queryset = proyecto.fases.prefetch_related('subartefactos').all()
+    # Obtener las fases usando el manager de Fase directamente
+    fases_queryset = Fase.objects.filter(proyecto=proyecto).select_related('proyecto').prefetch_related('subartefactos')
     fases = sorted(fases_queryset, key=lambda f: orden_deseado.index(f.nombre) if f.nombre in orden_deseado else 999)
 
     orden_subartefactos = {
@@ -155,12 +170,12 @@ def detalle_proyecto(request, proyecto_id):
 
     for fase in fases:
         orden = orden_subartefactos.get(fase.nombre, [])
-        fase.subartefactos_ordenados = sorted(
-            fase.subartefactos.all(),
+        fase.subartefactos_ordenados = sorted( # pyright: ignore[reportAttributeAccessIssue]
+            fase.subartefactos.all(), # pyright: ignore[reportAttributeAccessIssue]
             key=lambda s: orden.index(s.nombre) if s.nombre in orden else 999
         )
 
-    artefactos = proyecto.artefactos.select_related('fase', 'subartefacto')
+    artefactos = proyecto.artefactos.select_related('fase', 'subartefacto') # pyright: ignore[reportAttributeAccessIssue]
 
     #=======  Buscar HU y verificar si tiene requisitos ===================
     hu = artefactos.filter(titulo__iexact="Historia de Usuario").first()
@@ -204,7 +219,7 @@ def crear_artefacto(request, proyecto_id):
                 import traceback
                 artefacto.contenido = f"[ERROR IA] {str(e)}\n{traceback.format_exc()}"
             artefacto.save()
-            return redirect('detalle_proyecto', proyecto_id=proyecto.id)
+            return redirect('detalle_proyecto', proyecto_id=proyecto.id) # type: ignore
     else:
         form = ArtefactoForm(initial={'titulo': titulo_default})
     
@@ -264,7 +279,7 @@ def editar_artefacto(request, artefacto_id):
                 messages.success(request, '💾 Artefacto actualizado correctamente.')
 
             artefacto.save()
-            return redirect('ver_artefacto', artefacto_id=artefacto.id)
+            return redirect('ver_artefacto', artefacto_id=artefacto.id) # pyright: ignore[reportAttributeAccessIssue]
         else:
             print("❌ Errores de validación:", form.errors) 
             messages.error(request, '❌ Corrige los errores en el formulario.')
@@ -282,7 +297,7 @@ def editar_artefacto(request, artefacto_id):
 @login_required
 def eliminar_artefacto(request, artefacto_id):
     artefacto = get_object_or_404(Artefacto, id=artefacto_id, proyecto__propietario=request.user)
-    proyecto_id = artefacto.proyecto.id
+    proyecto_id = artefacto.proyecto.id # pyright: ignore[reportAttributeAccessIssue]
     artefacto.delete()
     messages.success(request, "Artefacto eliminado correctamente.")
     return redirect('detalle_proyecto', proyecto_id=proyecto_id)
@@ -323,14 +338,14 @@ def generar_artefacto(request, proyecto_id, subartefacto_nombre):
 
     if subartefacto.nombre not in ARTEFACTOS_TEXTO and not hu_con_requisitos:
         messages.warning(request, "⚠️ Primero debes generar la Historia de Usuario con requisitos antes de crear este tipo de artefacto.")
-        return redirect('detalle_proyecto', proyecto_id=proyecto.id)
+        return redirect('detalle_proyecto', proyecto_id=proyecto.id) # pyright: ignore[reportAttributeAccessIssue]
 
     artefacto_existente = Artefacto.objects.filter(
         proyecto=proyecto,
         titulo=subartefacto.nombre
     ).first()
     if artefacto_existente:
-        return redirect('ver_artefacto', artefacto_id=artefacto_existente.id)
+        return redirect('ver_artefacto', artefacto_id=artefacto_existente.id) # pyright: ignore[reportAttributeAccessIssue]
 
     try:
         if subartefacto.nombre in ARTEFACTOS_TEXTO:
@@ -379,9 +394,9 @@ def generar_artefacto(request, proyecto_id, subartefacto_nombre):
 
             artefacto.save()
             messages.success(request, "Historia de Usuario generada con requisitos.")
-            return redirect('ver_artefacto', artefacto.id)
+            return redirect('ver_artefacto', artefacto.id) # pyright: ignore[reportAttributeAccessIssue]
 
-    return redirect('ver_artefacto', artefacto_id=artefacto.id)
+    return redirect('ver_artefacto', artefacto_id=artefacto.id) # pyright: ignore[reportAttributeAccessIssue]
 
 @login_required
 def generar_subartefacto_modal(request, proyecto_id):
@@ -439,6 +454,14 @@ def descargar_diagrama(request, artefacto_id):
     return response
 
 # ===================== LOGIN =====================
+
+def check_username(request):
+    username = request.GET.get('username')
+    if not username:
+        return JsonResponse({'error': 'Username no proporcionado'}, status=400)
+    
+    exists = User.objects.filter(username__iexact=username).exists()
+    return JsonResponse({'available': not exists})
 
 def login_view(request):
     if request.method == 'POST':
