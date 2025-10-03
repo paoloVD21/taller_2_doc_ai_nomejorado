@@ -78,4 +78,5 @@ tzdata==2025.2
 Unidecode==1.4.0
 uritemplate==4.1.1
 urllib3==2.4.0
+whitenoise==6.11.0
 zstandard==0.23.0
